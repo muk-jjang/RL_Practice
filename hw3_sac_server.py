@@ -7,15 +7,16 @@ Original file is located at
     https://colab.research.google.com/drive/1oZkX6TAHrOUyJzve8Id21yopYXnHpfha
 """
 
-!pip install swig
-!pip install gymnasium
-!pip install gymnasium[box2d]
-!pip install imageio
+# !pip install swig
+# !pip install gymnasium
+# !pip install gymnasium[box2d]
+# !pip install imageio
 
 import numpy as np
 import gymnasium as gym
 import cv2
 import random
+import wandb
 
 import torch
 import torch.nn as nn
@@ -226,8 +227,8 @@ class SAC:
   def __init__(self, state_dim, action_dim):
       self.state_dim      = state_dim  # [cos(theta), sin(theta), theta_dot]
       self.action_dim     = action_dim  # [torque] in[-2,2]
-      self.lr_pi          = 0.001
-      self.lr_q           = 0.001
+      self.lr_pi          = 0.0001
+      self.lr_q           = 0.0001
       self.gamma          = 0.98
       self.batch_size     = 200
       self.buffer_limit   = 100000
@@ -287,7 +288,7 @@ class SAC:
       q1_loss = F.smooth_l1_loss(self.Q1(s_batch, a_batch), td_target)
       self.Q1.optimizer.zero_grad()
       q1_loss.mean().backward()
-      # nn.utils.clip_grad_norm_(self.q1.parameters(), 1.0)
+      nn.utils.clip_grad_norm_(self.Q1.parameters(), 1.0)
       self.Q1.optimizer.step()
       #### Q1 train ####
 
@@ -295,7 +296,7 @@ class SAC:
       q2_loss = F.smooth_l1_loss(self.Q2(s_batch, a_batch), td_target)
       self.Q2.optimizer.zero_grad()
       q2_loss.mean().backward()
-      # nn.utils.clip_grad_norm_(self.q2.parameters(), 1.0)
+      nn.utils.clip_grad_norm_(self.Q2.parameters(), 1.0)
       self.Q2.optimizer.step()
       #### Q2 train ####
 
@@ -309,7 +310,7 @@ class SAC:
       pi_loss = -(q + entropy)  # for gradient ascent
       self.actor.optimizer.zero_grad()
       pi_loss.mean().backward()
-      # nn.utils.clip_grad_norm_(self.pi.parameters(), 2.0)
+      nn.utils.clip_grad_norm_(self.actor.parameters(), 2.0)
       self.actor.optimizer.step()
       #### pi train ####
 
@@ -360,8 +361,11 @@ agent = SAC(state_dim, action_dim)
 history = {'Step': [], 'AvgReturn': []}
 s=env.reset()
 rewards=0
-score=-1
+score=-500
 total_steps=0
+wandb.init(project='SAC')
+wandb.run.name = 'SAC'
+wandb.run.save()
 
 while True:
 
@@ -371,6 +375,7 @@ while True:
         a, _ = agent.select_action(s)
         a = a.cpu().detach().numpy()
         a = a[0]
+
     ns, r, done,truncated,_ = env.step(a)
     total_steps+=1
     agent.process((s, a, r, ns, done))
@@ -379,12 +384,15 @@ while True:
     if done or truncated:
         s=env.reset()
         print("step:{} rewards: {}".format(total_steps,rewards))
+        wandb.log({'Reward': rewards})
         if score < rewards:
             score = rewards
-            torch.save(agent.actor.state_dict(), 'actor.pt')
+            torch.save(agent.actor.state_dict(), 'actor_best1.pt')
             print("New Best Saved")
 
         rewards=0
+
+
 
     if total_steps > max_steps:
         break
